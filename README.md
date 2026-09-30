@@ -50,6 +50,7 @@ Your router updates its own model catalog from a signed feed: new free models, q
 - [Using the API](#using-the-api)
 - [Screenshots](#screenshots)
 - [How it works](#how-it-works)
+- [Local enhancements (this fork)](#local-enhancements-this-fork)
 - [FAQ](#faq)
 - [Limitations](#limitations)
 - [Contributing](#contributing)
@@ -160,16 +161,17 @@ Based on public documentation, July 2026 — corrections welcome.
 - **Fusion (multi-model synthesis)** — request the virtual `fusion` model and the router fans your prompt out to a panel of diverse free models in parallel, then a judge model synthesizes one answer from the drafts. [Details →](docs/en/api/01-rest-api.md#fusion-multi-model-synthesis)
 - **Image, video & speech generation** — `/v1/images/generations`, `/v1/videos/generations`, and `/v1/audio/speech` route across the providers that serve media models; images and speech also accept custom OpenAI-compatible media endpoints. Video jobs are normalized across synchronous and queued providers and return a completed MP4.
 - **Tool calling & structured outputs** — OpenAI-style `tools` round-trip across providers (plain-text tool calls are rescued into real `tool_calls`), plus `response_format`, `seed`, `logprobs`, penalties, and the rest of the sampling params passed through per provider.
-- **Smart routing, six strategies** — live per-model speed/capability/reliability scores rank your chain; automatic fallover retries the next model on 429/5xx with cooldowns and key rotation. [Routing in detail →](docs/en/architecture/00-high-level-index.md#how-it-works)
+- **Smart routing, six strategies** — live per-model speed/capability/reliability scores rank your chain; automatic fallover retries the next model on 429/5xx with cooldowns and key rotation. Any strategy can also be requested per call with `auto:smartest` / `auto:fastest` / `auto:reliable`. [Routing in detail →](docs/en/architecture/00-high-level-index.md#how-it-works) · [fork notes →](#local-enhancements-this-fork)
 - **Unified models & profiles** — the same model on several providers collapses into one entry with strict in-group failover; named fallback-chain profiles (a coding chain, a vision chain) switch from the dashboard or per request via `auto:<profile>`, and custom chains can be renamed in place from the chain manager.
 - **Per-key rate tracking** — RPM/RPD/TPM/TPD counters per `(platform, model, key)` that learn providers' reported ceilings, so routing always stays under every cap.
 - **Self-updating model catalog** — the router syncs a signed catalog from freellmapi.co twice a day: new models, quota changes, and provider quirk fixes land automatically. Free installs track the monthly snapshot, which each model joins 30 days after it lands in the live feed; premium routers get it same-day. [Premium →](#premium-live-catalog)
+- **Opportunity radar** — a background scanner watches public free-endpoint manifests and every catalog sync, then stages models your install doesn't have yet as reviewable candidates. It never enables or adds anything on its own. [Details →](#opportunity-radar)
 - **Sticky sessions & context handoff** — conversations stay on one model for 30 minutes; an optional compact handoff note keeps the thread coherent when a mid-chat switch does happen. [Details →](docs/en/clients/01-agent-clients.md#context-handoff)
 - **Prompt compression (opt-in)** — a shared, fail-open request pipeline can deduplicate prompts, filter tool output, compact repeated JSON, and trim stale context before cache lookup and routing. [Details →](docs/en/compression/01-compression-pipeline.md)
 - **Encrypted keys, one token out** — provider keys are AES-256-GCM encrypted in SQLite and decrypted in-memory per request; your apps only ever see a single unified `freellmapi-…` bearer token.
 - **Admin dashboard & analytics** — React UI to manage keys, reorder the chain, run a playground, and read p50/p95/TTFT analytics over 24h–90d windows; login-gated, dark/light themes, [60 languages](#languages).
 - **ChatGPT-ready MCP server & interactive docs** — ChatGPT and other MCP clients can call FreeLLMAPI inference, list usable models, inspect provider health/usage/cache/routing metadata, and manage the routing strategy over `/mcp`; a dependency-free OpenAPI viewer lives at `/v1/docs`. [ChatGPT and coding agents →](docs/en/clients/01-agent-clients.md#mcp-server)
-- **Ops niceties** — opt-in response cache, encrypted DB backups, periodic key health checks, bulk key import/export, declarative startup config. [Install & deploy →](docs/en/install/01-install.md)
+- **Ops niceties** — opt-in response cache, encrypted DB backups, periodic key health checks, bulk key import/export, declarative startup config, and a switch to disable adaptive TTFB widening. [Install & deploy →](docs/en/install/01-install.md)
 - **Runs anywhere Node 20+ runs** — Windows, macOS, Linux servers, or a small ARM SBC (Raspberry Pi included). ~40 MB RSS at idle behind PM2 / systemd / whatever supervisor you prefer.
 
 The scope is deliberately narrow — see [what's not supported yet](docs/en/architecture/00-high-level-index.md#not-yet-supported).
@@ -321,6 +323,8 @@ print("Routed via:", resp.headers.get("x-routed-via"))
 
 Streaming, the `auto:*` routing strategies, tool calling, vision input, Gemini Google Search grounding, embeddings, and the Anthropic Messages surface — with curl and Python examples for each — are all in **[docs/en/api/01-rest-api.md](docs/en/api/01-rest-api.md)**. Every response carries an `X-Routed-Via: <platform>/<model>` header so you can see which provider actually served it.
 
+In this fork an `auto:*` suffix is a genuine **per-request override** of your global strategy — `auto:fastest` sorts that request on the speed axis even while your dashboard is set to `balanced`. There is no cost axis, so `auto:cheapest` is not an alias. See [Local enhancements](#local-enhancements-this-fork).
+
 ## Screenshots
 
 ### Models
@@ -352,6 +356,51 @@ Request volume, success rate, tokens in and out, average latency, and per-provid
 ![One request in, the best free model out — the fallback chain with live scores, cooldowns, and quota tracking](repo-assets/router-flow.png)
 
 One request in, the best free model out: the router picks the highest-priority model with a healthy key that's under all its rate limits, decrypts the key in memory, and calls the provider — on a 429/5xx it cools that key down and retries the next model in your chain. The component walkthrough, routing internals, and operational details live in **[docs/en/architecture/00-high-level-index.md](docs/en/architecture/00-high-level-index.md)**.
+
+## Local enhancements (this fork)
+
+Four changes in this fork that are not yet upstream. Each is behaviour-preserving for existing setups and covered by tests.
+
+### Adaptive `auto:` aliases actually route on their axis
+
+The `auto:*` suffix set is `smart` / `smartest` / `intelligence`, `fast` / `fastest` / `speed`, `reliable` / `reliability`, and `balanced`. Each is a per-request override of your global strategy.
+
+Before this fix the alias built the *correct* chain and then `routeRequest` re-sorted it with the operator's **global** strategy — `orderChain` breaks score ties on `priority`, which the global sort pins to `0` for every row. Net effect: every `auto:<axis>` request quietly routed as the global strategy, so `auto:fastest` returned the balanced winner unless your dashboard happened to be set to *fastest*. The chain was correct and then thrown away.
+
+The axis now travels with the resolved chain (`ResolvedChain.axisStrategy`) and is handed to `routeRequest` as a `strategyOverride`, so the alias you asked for is the axis that orders the request. Plain `auto` and `auto:<profile>` are unchanged. Regression coverage: `server/src/__tests__/services/routing-auto-axis-alias.test.ts`.
+
+There is deliberately **no cost axis** — nothing in this catalog is priced, so `auto:cheap` / `auto:cheapest` were removed rather than faked as an alias for `balanced`. On the REST surfaces an unknown `auto:<name>` is now a profile-not-found `400` instead of silently routing balanced.
+
+### Provider-reported quota guardrail
+
+The existing guardrails (`headroom`, `rateLimit`) read *local* sliding windows, which don't line up with a provider's calendar reset: just after UTC midnight a nearly-reset package looks fresh, and an idled package looks exhausted for the rest of its window. Providers also report the calendar window directly in their quota headers (`remaining 38, resets in 3h12m`), so the router folds that in as a third multiplier:
+
+```
+effective = base × headroomFactor × rateLimitFactor × quotaFactor
+```
+
+`quotaFactor` is the **worse** of two ramps — reported `remaining / limit`, and `survivalRatio = (exhaustionAt − now) / (resetAt − now)` — on the same operator-tunable thresholds as the other guardrails, so one pair of settings tunes all of them. A pool that would be empty in 20 minutes is demoted even while it reads "60% remaining". Unknown input leaves the model untouched (`= 1`). `getQuotaForecastByPool()` memoises the pool map for 20s, so this adds no query per model on the hot path.
+
+### Opportunity radar
+
+`server/src/services/opportunity-radar.ts` finds free endpoints your install doesn't have yet and stages them as **candidates**. It never enables, inserts, or routes to anything by itself — review is manual, by design.
+
+- **Catalog diff** — every signed-catalog sync stages the rows that are new to this install before they reach the `models` table; `opportunity_last_catalog_diff` records the headline count.
+- **Keyless scans** — probes known keyless `/v1/models` manifests (currently `pollinations` and `ovh`) with a 15s timeout, every 12h after a 30s boot delay.
+- **Scout** — `POST /api/opportunities/scout` probes one base URL and reports what actually answered.
+
+Candidates live in `opportunity_candidates` with status `new` → `authored` / `rejected`, and every pass writes an audit row to `opportunity_scans` (`models_seen`, `new_models`, `scan_error`). The API is `/api/opportunities` with `/`, `/summary`, `/scan`, `/scan/:platform`, `/scout`; a pass stages at most 200 candidates per source.
+
+Expect overlap with what you already run: on a stock install roughly **54%** of staged candidates match a model ID already in the catalog, which is what the dedupe, the `status` column, and the "known model" filter are for.
+
+### Adaptive TTFB widening can be disabled
+
+The router relaxes a slow endpoint's time-to-first-byte budget as it collects successful samples, capped at 3× the base budget (135s at the 45s default). It only ever relaxes, and it's on by default. Two ways to turn the widening off:
+
+- `TTFB_BUDGET_DISABLED=1` in the environment.
+- `ttfb_budget_disabled` in the **settings** table (`1` = off) — the only route available to the packaged desktop app, which inherits no shell environment.
+
+The settings key wins when both are set. Percentiles stay visible either way; only the widening is suppressed. This matches how `slow_endpoint_buffer_ms` and the other `ttfb_budget_*` knobs already prefer the settings table over the env var.
 
 ## FAQ
 
