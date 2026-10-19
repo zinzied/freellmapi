@@ -38,6 +38,9 @@ import { DreamPromptingProvider } from './dreamprompting.js';
 import { WaterfallProvider } from './waterfall.js';
 import { LogfareProvider } from './logfare.js';
 import { AurayProvider } from './auray.js';
+import { BeatApiProvider } from './beatapi.js';
+import { ApinexProvider } from './apinex.js';
+import { SerpSearchProvider } from './serpsearch.js';
 
 const providers = new Map<Platform, BaseProvider>();
 
@@ -82,6 +85,9 @@ register(new GizmoProvider());
 register(new BlockRunProvider());
 register(new MoondreamProvider());
 register(new AurayProvider());
+register(new BeatApiProvider());
+register(new ApinexProvider());
+register(new SerpSearchProvider());
 
 // Free-plan grants are shared wallets, not free credits per model. Eligibility
 // and tested model rows belong in Oracle, never in bundled DB migrations.
