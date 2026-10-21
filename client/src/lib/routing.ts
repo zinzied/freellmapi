@@ -422,7 +422,6 @@ export const platformColors: Record<string, string> = {
   sail:        '#0ea5e9',
   aclide:      '#6366f1',
   speka:       '#0d9488',
-  auray:       '#635bff',
   typhoon:     '#e11d48',
   plugsky:     '#0284c7',
   inferbase:   '#2563eb',
@@ -485,6 +484,7 @@ export const platformColors: Record<string, string> = {
   serpsearch:  '#2563eb',
   beatapi:     '#8b5cf6',
   apinex:      '#06b6d4',
+  onomeo:      '#f97316',
 }
 
 // ── Grouped (unified) rendering ──────────────────────────────────────────────
