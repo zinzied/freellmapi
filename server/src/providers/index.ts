@@ -9,6 +9,7 @@ import { FirecrawlProvider } from './firecrawl.js';
 import { LinkupProvider } from './linkup.js';
 import { ParallelProvider } from './parallel.js';
 import { KeenableProvider } from './keenable.js';
+import { KeylessDecisionProvider } from './decision-only.js';
 import { CloudflareProvider } from './cloudflare.js';
 import { AIHordeProvider } from './aihorde.js';
 import { ModelScopeProvider } from './modelscope.js';
@@ -27,6 +28,7 @@ import { LlmtrProvider } from './llmtr.js';
 import { GizmoProvider } from './gizmo.js';
 import { BlockRunProvider } from './blockrun.js';
 import { MoondreamProvider } from './moondream.js';
+import { JamaiProvider } from './jamai.js';
 import { ElectronHubProvider } from './electronhub.js';
 import { ExperientialProvider } from './experiential.js';
 import { Router9Provider } from './router9.js';
@@ -57,6 +59,8 @@ function register(provider: BaseProvider) {
 // cold start; the default 15s false-flags them as broken. 60s covers the
 // bulk; per-call overrides via CompletionOptions.timeoutMs still win.
 register(new GoogleProvider({ timeoutMs: 60_000 }));
+register(new KeylessDecisionProvider('halx', 'HAL-X'));
+register(new KeylessDecisionProvider('aisense', 'AI SENSE'));
 
 // Groq - OpenAI-compatible
 register(new OpenAICompatProvider({
@@ -91,6 +95,7 @@ register(new LlmtrProvider());
 register(new GizmoProvider());
 register(new BlockRunProvider());
 register(new MoondreamProvider());
+register(new JamaiProvider());
 register(new BeatApiProvider());
 register(new ApinexProvider());
 register(new OnomeoProvider());
